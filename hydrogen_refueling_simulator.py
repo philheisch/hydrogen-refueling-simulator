@@ -1,59 +1,64 @@
+
 import streamlit as st
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
-st.set_page_config(page_title="Hydrogen Refueling Simulator", layout="centered")
+st.set_page_config(page_title="Hydrogen Refueling Simulator", layout="wide")
 
-st.title("🚛 Hydrogen Refueling Station Simulator")
-st.markdown("Simulate your H2 station sizing and refueling flow ⛽")
+st.title("🚀 Hydrogen Refueling Station Simulator")
 
-st.sidebar.header("📋 Station Configuration")
+st.markdown(
+    '''
+    This simulator helps you size and simulate hydrogen refueling stations at either **350 bar** or **700 bar**.
+    It supports compression at **500 or 900 bar**, and uses SAE-like fill logic.
+    '''
+)
 
-# Select compressor type
-compressor_type = st.sidebar.radio("Compressor Type", ["25 kg/h @ 900 bar", "50 kg/h @ 500 bar"])
-compressor_flow = 25 if "25" in compressor_type else 50
-compressor_pressure = 900 if "900" in compressor_type else 500
+# Inputs
+col1, col2 = st.columns(2)
 
-# Select refueling pressure
-vehicle_pressure = st.sidebar.selectbox("Vehicle Refueling Pressure", [350, 700])
-num_nozzles = st.sidebar.slider("Number of Nozzles", 1, 6, 2)
-avg_vehicle_size = st.sidebar.number_input("Vehicle H2 Capacity (kg)", min_value=1.0, value=20.0)
-avg_starting_pressure = st.sidebar.number_input("Average Starting Pressure (bar)", min_value=0.0, value=50.0)
-vehicles_per_hour = st.sidebar.number_input("Vehicles per hour", min_value=1, value=10)
+with col1:
+    fill_pressure = st.selectbox("Target Vehicle Fill Pressure", [350, 700], index=1)
+    vehicle_count = st.number_input("Vehicles per hour", min_value=1, value=10)
+    avg_tank_liters = st.number_input("Avg. Tank Volume per Vehicle [liters @1 bar]", min_value=1, value=150)
+    avg_start_pressure = st.number_input("Avg. Start Pressure [bar]", min_value=0, max_value=fill_pressure-1, value=100)
 
-# Compression time
-compressor_startup_time = 15  # min
-nozzle_flow_rate = 1.0 * num_nozzles  # kg/min total
+with col2:
+    compressor_pressure = st.selectbox("Compressor Output Pressure", [500, 900], index=1)
+    compressor_flow = st.selectbox("Compressor Flow Rate [kg/h]", [25, 50], index=1)
+    nozzle_flow = st.number_input("Nozzle Flow Rate [kg/min]", min_value=1, value=5)
+    nozzle_count = st.number_input("Number of Nozzles", min_value=1, value=2)
 
-st.markdown("---")
-st.subheader("🧮 Simulation Results")
+# Calculation logic
+st.subheader("📊 Results")
 
-# Estimate refueling time per vehicle
-delta_pressure = vehicle_pressure - avg_starting_pressure
-vehicle_fill_time = avg_vehicle_size / nozzle_flow_rate  # in minutes
+vehicle_h2_needed = (fill_pressure - avg_start_pressure) * avg_tank_liters * 0.0899 / 1000  # in kg
+total_h2_per_hour = vehicle_h2_needed * vehicle_count
+effective_nozzle_flow = nozzle_flow * nozzle_count * 60  # kg/h
 
-# Required hourly flow
-required_flow = avg_vehicle_size * vehicles_per_hour  # kg/h
+compressor_needed = total_h2_per_hour / compressor_flow
+nozzles_needed = total_h2_per_hour / effective_nozzle_flow
 
-# Number of compressors
-effective_compressor_flow = compressor_flow * (45 / 60)  # accounting for 15min startup
-compressors_needed = np.ceil(required_flow / effective_compressor_flow)
+st.markdown(f'''
+- **Hydrogen needed per vehicle**: {vehicle_h2_needed:.2f} kg  
+- **Total hourly hydrogen need**: {total_h2_per_hour:.2f} kg  
+- **Estimated compressors needed**: {compressor_needed:.2f} → **{int(np.ceil(compressor_needed))}**  
+- **Estimated nozzles needed**: {nozzles_needed:.2f} → **{int(np.ceil(nozzles_needed))}**
+''')
 
-# Output
-st.markdown(f"**Estimated fill time per vehicle**: {vehicle_fill_time:.1f} minutes")
-st.markdown(f"**Total H2 required per hour**: {required_flow:.1f} kg")
-st.markdown(f"**Effective compressor capacity**: {effective_compressor_flow:.1f} kg/h")
-st.markdown(f"**Estimated compressors required**: {int(compressors_needed)} unit(s)")
+# Simulate filling time per vehicle
+st.subheader("⏱ Fill Curve Simulation")
 
-# Plot
-time = np.linspace(0, vehicle_fill_time, 100)
-pressure_curve = avg_starting_pressure + (vehicle_pressure - avg_starting_pressure) * (1 - np.exp(-time / 3))
+fill_times = []
+pressures = np.linspace(avg_start_pressure, fill_pressure, 50)
+for p in pressures:
+    fill_times.append((p - avg_start_pressure) / (fill_pressure - avg_start_pressure) * (vehicle_h2_needed / nozzle_flow) * 60)
 
 fig, ax = plt.subplots()
-ax.plot(time, pressure_curve, label="Vehicle Pressure", color="blue")
-ax.axhline(vehicle_pressure, color="green", linestyle="--", label="Target Pressure")
-ax.set_xlabel("Time (min)")
-ax.set_ylabel("Pressure (bar)")
-ax.set_title("Hydrogen Pressure During Refueling")
-ax.legend()
+ax.plot(fill_times, pressures, label="Pressure during filling")
+ax.set_xlabel("Time (s)")
+ax.set_ylabel("Vehicle Pressure (bar)")
+ax.set_title("Hydrogen Fill Curve")
+ax.grid(True)
 st.pyplot(fig)
